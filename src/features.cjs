@@ -384,7 +384,11 @@ const MV_NOTES = [
    senin state.json'unda. Herkeste otomatik görünsün istersen gist ham bağlantısını
    aşağıdaki sabite yaz (veya Ayarlar → Yönetici paneli → "herkeste" alanına kurallar). */
 const DEFAULT_NEWS_FEED_URL = '';
-const DEFAULT_OWNER_CODE = 'mineverse';
+/* Yönetici paneli artık koda değil, "sahip makinesi" işaretine bağlı:
+   APP_DIR içinde owner.flag dosyası olan bilgisayarda panel görünür ve otomatik açık olur.
+   Başka hiçbir kurulumda (indirilen .exe / kaynak) bu dosya olmadığı için panel hiç gözükmaz. */
+const OWNER_FLAG_FILE = () => path.join(ctx.APP_DIR(), 'owner.flag');
+function isOwnerMachine() { try { return fsSync.existsSync(OWNER_FLAG_FILE()); } catch { return false; } }
 let ownerUnlocked = false;
 const NEWS_FILE_NAME = 'mineverse-news.json';
 const NEWS_LOCAL_COPY = () => path.join(ctx.APP_DIR(), 'news-feed.json');
@@ -884,28 +888,22 @@ function register(context) {
     const s = state.settings || {};
     const secret = await readOwnerSecret();
     const feed = await loadOwnerNews(state);
+    ownerUnlocked = isOwnerMachine();
     return {
       unlocked: ownerUnlocked,
       tokenSet: !!secret.githubToken, tokenHint: secret.githubToken ? `****${String(secret.githubToken).slice(-4)}` : '',
       gistId: s.newsGistId || '', feedUrl: feedUrlOf(state), defaultFeedUrl: DEFAULT_NEWS_FEED_URL,
-      hasOwnCode: !!s.ownerCode, newsFile: NEWS_FILE_NAME, items: feed.items, source: feed.source, error: feed.error || '',
+      newsFile: NEWS_FILE_NAME, items: feed.items, source: feed.source, error: feed.error || '',
       panelVisible: ownerUnlocked
     };
   });
-  ipcMain.handle('owner:unlock', async (_, code) => {
-    const state = await ctx.getState();
-    const expected = String(state.settings.ownerCode || DEFAULT_OWNER_CODE);
-    if (String(code || '').trim() !== expected) { ownerUnlocked = false; throw new Error('Yönetici kodu hatalı.'); }
-    ownerUnlocked = true;
-    return { unlocked: true };
-  });
-  ipcMain.handle('owner:lock', async () => { ownerUnlocked = false; return { unlocked: false }; });
+  ipcMain.handle('owner:unlock', async () => { ownerUnlocked = isOwnerMachine(); return { unlocked: ownerUnlocked }; });
+  ipcMain.handle('owner:lock', async () => ({ unlocked: ownerUnlocked }));
   ipcMain.handle('owner:save', async (_, patch) => {
     if (!ownerUnlocked) throw new Error('Önce yönetici koduyla giriş yap.');
     const state = await ctx.getState();
     if (typeof patch.newsGistId === 'string') state.settings.newsGistId = patch.newsGistId.trim();
     if (typeof patch.newsFeedUrl === 'string') state.settings.newsFeedUrl = patch.newsFeedUrl.trim();
-    if (typeof patch.ownerCode === 'string' && patch.ownerCode.trim().length >= 4) state.settings.ownerCode = patch.ownerCode.trim();
     await ctx.saveState(state);
     const token = typeof patch.githubToken === 'string' ? patch.githubToken.trim() : '';
     const secret = token ? await saveOwnerSecret({ githubToken: token }) : await readOwnerSecret();
