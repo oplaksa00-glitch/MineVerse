@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+
+  build:
+    runs-on: windows-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Build portable + zip (secrets.json CI icin ornekten uretilir)
+        run: |
+          Copy-Item build/secrets.example.json build/secrets.json
+          npm run dist:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mineverse-windows
+          path: release/
+          if-no-files-found: error

@@ -1,0 +1,64 @@
+{
+  "name": "mineverse",
+  "version": "0.12.0",
+  "private": true,
+  "description": "One launcher. Every mod.",
+  "author": "MineVerse",
+  "homepage": "https://github.com/",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "check": "node --check src/main.cjs && node --check src/preload.cjs && node --check src/features.cjs && node --check src/launch.cjs && node --check src/renderer/icons.js && node --check src/renderer/features.js && node --check src/renderer/account.js && node --check src/renderer/app.js",
+    "dist:win": "electron-builder --win --x64",
+    "asset": "node tools/set-image.js",
+    "icons": "node tools/set-image.js list",
+    "icon": "node tools/set-image.js icon"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16"
+  },
+  "devDependencies": {
+    "electron": "^37.2.6",
+    "electron-builder": "^25.1.8",
+    "jimp": "^0.22.12"
+  },
+  "build": {
+    "appId": "com.mineverse.app",
+    "productName": "MineVerse",
+    "copyright": "Copyright © 2026 MineVerse",
+    "files": [
+      "src/**/*",
+      "build/icon.ico",
+      "build/secrets*.json",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "requestedExecutionLevel": "asInvoker",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-win.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false
+    },
+    "asar": true
+  }
+}

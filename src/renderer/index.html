@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: file: https:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MineVerse — Create. Mod. Play.</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="bg-image" aria-hidden="true"></div>
+    <div id="bg-dim" aria-hidden="true"></div>
+    <div class="winbar">
+      <div class="win-brand">
+        <img src="assets/logo-128.png" alt="" draggable="false" />
+        <strong>MineVerse</strong>
+        <span class="win-version">v0.12</span>
+      </div>
+      <div class="win-drag"></div>
+      <div class="win-controls">
+        <button class="win-btn" id="win-min" title="Küçült" aria-label="Küçült">─</button>
+        <button class="win-btn" id="win-max" title="Büyüt / geri yükle" aria-label="Büyüt">▢</button>
+        <button class="win-btn win-close" id="win-close" title="Kapat" aria-label="Kapat">✕</button>
+      </div>
+    </div>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <img class="brand-mark" src="assets/logo-128.png" alt="MineVerse" />
+          <div><strong>MineVerse</strong><span>v0.12 · yerel çalışıyor</span></div>
+        </div>
+        <nav class="nav" id="nav">
+          <button class="nav-item active" data-page="home"><i data-ic="nav-home"></i> Ana Sayfa</button>
+          <button class="nav-item" data-page="discover"><i data-ic="nav-discover"></i> Keşfet</button>
+          <button class="nav-item" data-page="ai"><i data-ic="nav-ai"></i> AI Önerici</button>
+          <button class="nav-item" data-page="library"><i data-ic="nav-library"></i> Kütüphane</button>
+          <button class="nav-item" data-page="packs"><i data-ic="nav-packs"></i> Paket Oluştur</button>
+          <button class="nav-item" data-page="launchers"><i data-ic="nav-launchers"></i> Launcher'lar</button>
+          <button class="nav-item" data-page="friends"><i data-ic="nav-friends"></i> Arkadaşlar</button>
+        </nav>
+        <div class="sidebar-spacer" id="sidebar-widgets"></div>
+        <div id="sidebar-account"></div>
+        <button class="nav-item" data-page="settings"><i data-ic="nav-settings"></i> Ayarlar</button>
+      </aside>
+      <main id="main" class="main">
+        <div class="boot-screen" id="boot-screen">
+          <img src="assets/logo-256.png" alt="MineVerse" />
+          <div class="boot-spinner"></div>
+          <p>MineVerse hazırlanıyor…</p>
+        </div>
+      </main>
+      <aside id="rightpanel" class="rightpanel"></aside>
+    </div>
+    <div id="toast" class="toast"></div>
+    <script src="icons.js"></script>
+    <script src="features.js"></script>
+    <script src="account.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
