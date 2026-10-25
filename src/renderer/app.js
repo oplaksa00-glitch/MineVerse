@@ -20,34 +20,18 @@ const loaderOptions = ['Fabric', 'Forge', 'NeoForge', 'Quilt'];
 const BLOCK_ICONS = ['grass','stone','dirt','oak','diamond','gold','iron','coal','sand','water','lava','obsidian','emerald','bedrock','redstone','copper','lapis','cobblestone','ice','snow','clay','netherrack','quartz','prismarine','endstone','tnt','hay'];
 const BLOCK_LABELS_TR = { grass:'Çim', stone:'Taş', dirt:'Toprak', oak:'Meşe odunu', diamond:'Elmas', gold:'Altın', iron:'Demir', coal:'Kömür', sand:'Kum', water:'Su', lava:'Lav', obsidian:'Obsidyen', emerald:'Zümrüt', bedrock:'Bedrock', redstone:'Kızıltaş', copper:'Bakır', lapis:'Lapis', cobblestone:'Kırıktaş', ice:'Buz', snow:'Kar', clay:'Kil', netherrack:'Netherrack', quartz:'Kuvars', prismarine:'Prizmarin', endstone:'End taşı', tnt:'TNT', hay:'Saman' };
 const FUN_ICONS = ['😂','🔥','💀','👑','🚀','⚡','🎉','🐸','🍕','🎯','🌟','😎','🎮','🦄','💎'];
-/* İzometrik küp önizlemeleri: blok dokusunun üst/yan yüzlerinden 3B görünümlü
-   ikon üretir; "iso:<blok>" değeri profil ikonlarında da kullanılabilir. */
+/* İzometrik küp ikonları: assets/blocks/*.png zaten izometrik küp olarak çizilmiş
+   görsellerdir; gölge ekleyerek derinlik veriyoruz. "iso:<blok>" değeri profil
+   ikonlarında da kullanılabilir. */
 const isoIconCache = new Map();
 function makeIsoBlockCanvas(img) {
-  const S = 16, W = 2 * S, H = 3 * S;
+  const S = 64;
   const canvas = document.createElement('canvas');
-  canvas.width = W; canvas.height = H;
+  canvas.width = S; canvas.height = S;
   const ctx = canvas.getContext('2d');
   ctx.imageSmoothingEnabled = false;
-  const A = [S, 0], D = [0, S / 2];
-  const face = (p0, pu, pv, dark) => {
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(p0[0], p0[1]);
-    ctx.lineTo(p0[0] + pu[0], p0[1] + pu[1]);
-    ctx.lineTo(p0[0] + pu[0] + pv[0], p0[1] + pu[1] + pv[1]);
-    ctx.lineTo(p0[0] + pv[0], p0[1] + pv[1]);
-    ctx.closePath();
-    ctx.clip();
-    ctx.setTransform(pu[0] / S, pu[1] / S, pv[0] / S, pv[1] / S, p0[0], p0[1]);
-    ctx.drawImage(img, 0, 0, 8, 8, 0, 0, S, S);
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    if (dark) { ctx.fillStyle = `rgba(0,0,0,${dark})`; ctx.fillRect(0, 0, W, H); }
-    ctx.restore();
-  };
-  face(D, [S, -S / 2], [0, S], 0.28);        // sol yüz
-  face(A, [S, S / 2], [0, S], 0.12);         // sağ yüz
-  face(D, [S, S / 2], [S, -S / 2], 0);       // üst yüz
+  ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 5; ctx.shadowOffsetY = 3;
+  ctx.drawImage(img, 4, 3, S - 8, S - 8);
   return canvas;
 }
 async function ensureIsoIcons() {
