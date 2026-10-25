@@ -27,7 +27,7 @@ const ICON_FALLBACK = {
   'card-play-mode': '🎮', 'card-deps': '🧬', 'card-uuid': '🪪', 'card-accounts': '🗂️',
   'card-code': '🏷️', 'card-export': '📦', 'card-import': '📥',
   'card-skins': '🧍', 'card-wallpapers': '🌌', 'card-badges': '🏆', 'card-palette': '⌘',
-  'card-duplicate': '⧉'
+  'card-duplicate': '⧉', 'card-identity': '🏅'
 };
 
 let uiIconSet = null;

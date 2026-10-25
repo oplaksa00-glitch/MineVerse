@@ -88,6 +88,7 @@ contextBridge.exposeInMainWorld('mineverse', {
   uploadSkin: () => ipcRenderer.invoke('skins:upload'),
   deleteSkin: name => ipcRenderer.invoke('skins:delete', name),
   applySkinAvatar: (accountId, dataUrl) => ipcRenderer.invoke('skins:applyAvatar', accountId, dataUrl),
+  applySkinToGame: skinName => ipcRenderer.invoke('skins:applyToGame', skinName),
   windowMinimize: () => ipcRenderer.invoke('window:minimize'),
   windowToggleMaximize: () => ipcRenderer.invoke('window:toggleMaximize'),
   windowClose: () => ipcRenderer.invoke('window:close')

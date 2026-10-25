@@ -84,6 +84,22 @@ function newsSection() {
   if (newsTab === 'mineverse' && newsData) body += `<p class="note">${ownerFeedNote(newsData.feed)}</p>`;
   return `<div class="section-head"><div><h2>${ic('card-news')} Haberler & Güncellemeler</h2><p>Minecraft ve mod dünyasından son gelişmeler.</p></div><a data-news-refresh>${ic('act-refresh')} Yenile</a></div><div class="news-tabs">${tabs.map(([id, label]) => `<button class="news-tab ${newsTab === id ? 'active' : ''}" data-news-tab="${id}">${label}</button>`).join('')}</div>${body}`;
 }
+function findNewsItem(kind, id) {
+  if (!newsData) return null;
+  const list = kind === 'mv' ? newsData.mineverse : newsData.minecraft;
+  return (list || []).find(n => String(n.id) === String(id)) || null;
+}
+/* Haber detay penceresi: büyük görsel + tam metin + bağlantı. */
+function newsDetailModal(item) {
+  const it = item || {};
+  const img = it.image ? `<img class="news-detail-img" src="${esc(it.image)}" alt="" onerror="this.remove()">` : '';
+  const meta = [it.tag ? `<span class="news-tag ${esc(it.tagClass || '')}">${esc(it.tag)}</span>` : '', it.date ? `<span class="news-date">${esc(dateTr(it.date))}</span>` : ''].join('');
+  const link = it.url ? `<div class="modal-actions"><button class="btn primary" data-news-open-link>${ic('act-open')} Bağlantıyı aç</button></div>` : '';
+  document.body.insertAdjacentHTML('beforeend', `<div class="modal-backdrop" data-news-modal><div class="modal modal-lg news-detail">${img}<div class="news-detail-body">${meta}<h2>${esc(it.title || 'Haber')}</h2><p>${esc(it.summary || '')}</p>${link}</div><button class="modal-x" data-news-close>${ic('act-close')}</button></div></div>`);
+  const back = q('[data-news-modal]');
+  back.addEventListener('click', event => { if (event.target === back || event.target.closest('[data-news-close]')) back.remove(); });
+  back.querySelector('[data-news-open-link]')?.addEventListener('click', () => mv().openExternal(it.url).catch(error => toast(error.message, true)));
+}
 
 /* ---------------- Akıllı uyumluluk analizi (Kütüphane) ---------------- */
 function issueRow(i) {
@@ -282,7 +298,7 @@ function ownerCardHtml() {
   const uploadBox = ownerImageData
     ? `<div class="owner-upload has-image" data-owner-image><img src="${esc(ownerImageData)}" alt=""><span class="owner-upload-change">${ic('act-refresh')} Değiştir</span><button class="mini-btn owner-upload-clear" data-owner-image-clear title="Görseli kaldır">${ic('act-close')}</button></div>`
     : `<div class="owner-upload" data-owner-image>${ic('act-upload')}<span>Görsel yükle<br><em>PNG/JPG · en fazla 1 MB</em></span></div>`;
-  return `<article class="setting-card wide owner-panel" data-owner-editor><h3>${ic('card-news')} Yönetici paneli · MineVerse haberleri</h3><p class="note" style="margin-bottom:12px">Akış: ${ownerSourceLabel(info)} · Gist: <span class="mono">${esc(info.gistId || '—')}</span> · Token: <span class="mono">${esc(info.tokenHint || 'yok')}</span></p><div class="owner-grid"><div class="owner-form"><div><label class="form-label">BAŞLIK</label><input class="form-input" id="owner-title" maxlength="120" placeholder="MineVerse 0.12 çıktı"></div><div><label class="form-label">BAĞLANTI</label><input class="form-input mono" id="owner-url" placeholder="https://… (isteğe bağlı)"></div><div><label class="form-label">ETİKET</label><input class="form-input" id="owner-tag" maxlength="24" placeholder="Duyuru / Sürüm / Rehber"></div><div><label class="form-label">ÖZET</label><textarea class="form-input" id="owner-summary" rows="4" maxlength="400" placeholder="Kısa ve net haber metni"></textarea></div><div class="modal-actions owner-actions"><button class="btn primary" data-owner-add>${ic('act-add')} Listeye ekle</button><button class="btn ghost" data-owner-reset>Sunucudan yeniden al</button><button class="btn primary" data-owner-publish ${ownerBusy === 'publish' ? 'disabled' : ''}>${ownerBusy === 'publish' ? 'Yayımlanıyor…' : ic('act-upload') + ' Githuba yükle'}</button></div></div><div class="owner-side">${uploadBox}<span class="form-label">ÖNİZLEME PENCERESİ</span><div class="owner-preview" id="owner-preview-slot">${newsCard(ownerBlankItem(), 1)}</div></div></div><input type="file" id="owner-image-input" accept="image/png,image/jpeg" style="display:none"><details class="owner-settings"><summary>${ic('nav-settings')} Bağlantı ve güvenlik ayarları</summary><div class="form-row" style="grid-template-columns:1fr 1fr;margin-top:10px"><div><label class="form-label">GITHUB TOKEN (repo/gist izni)</label><input class="form-input" type="password" id="owner-token" placeholder="${info.tokenSet ? 'değiştirmek için yeni token yaz' : 'ghp_…'}"></div><div><label class="form-label">GİST KİMLİĞİ</label><input class="form-input mono" id="owner-gist" value="${esc(info.gistId)}" placeholder="gist oluşturunca kendisi dolar"></div></div><div class="form-row" style="grid-template-columns:1fr"><div><label class="form-label">HERKESİN OKUYACAĞI HAM BAĞLANTI (raw)</label><input class="form-input mono" id="owner-feed" value="${esc(info.feedUrl)}" placeholder="https://gist.githubusercontent.com/…/raw/mineverse-news.json"></div></div><div class="modal-actions" style="justify-content:flex-start;flex-wrap:wrap"><button class="btn primary" data-owner-save ${ownerBusy === 'save' ? 'disabled' : ''}>Ayarları kaydet</button>${info.tokenSet ? '' : '<button class="btn success" data-owner-create>Gist oluştur</button>'}</div></details><h3 style="margin-top:16px">Yayımlanacak liste (${ownerDraft.length})</h3><div style="margin-top:8px">${draftRows}</div><p class="note">Token yalnız bu bilgisayarda, arayüzün okuyamadığı ayrı bir dosyada (<span class="mono">owner-secret.json</span>) durur. Görsel eklenen haberlerde resim Gist’e ayrı dosya olarak yüklenir; diğer MineVerse’ler 30 dakika içinde görür.</p></article>`;
+  return `<article class="setting-card wide owner-panel" data-owner-editor><h3>${ic('card-news')} Yönetici paneli · MineVerse haberleri</h3><p class="note" style="margin-bottom:12px">Akış: ${ownerSourceLabel(info)} · Gist: <span class="mono">${esc(info.gistId || '—')}</span> · Token: <span class="mono">${esc(info.tokenHint || 'yok')}</span></p><div class="owner-grid"><div class="owner-form"><div><label class="form-label">BAŞLIK</label><input class="form-input" id="owner-title" maxlength="120" placeholder="MineVerse 0.12 çıktı"></div><div><label class="form-label">BAĞLANTI</label><input class="form-input mono" id="owner-url" placeholder="https://… (isteğe bağlı)"></div><div><label class="form-label">ETİKET</label><input class="form-input" id="owner-tag" maxlength="24" placeholder="Duyuru / Sürüm / Rehber"></div><div><label class="form-label">ÖZET</label><textarea class="form-input" id="owner-summary" rows="4" maxlength="400" placeholder="Kısa ve net haber metni"></textarea></div><div class="modal-actions owner-actions"><button class="btn primary" data-owner-add>${ic('act-add')} Listeye ekle</button><button class="btn ghost" data-owner-reset>Sunucudan yeniden al</button><button class="btn primary" data-owner-publish ${ownerBusy === 'publish' ? 'disabled' : ''}>${ownerBusy === 'publish' ? 'Yayımlanıyor…' : ic('act-upload') + ' Githuba yükle'}</button></div></div><div class="owner-side">${uploadBox}<span class="form-label">ÖNİZLEME PENCERESİ</span><div class="owner-preview" id="owner-preview-slot">${newsCard(ownerBlankItem(), 1)}</div></div></div><input type="file" id="owner-image-input" accept="image/png,image/jpeg" style="display:none"><details class="owner-settings"><summary>${ic('nav-settings')} Bağlantı ve güvenlik ayarları</summary><div class="form-row" style="grid-template-columns:1fr 1fr;margin-top:10px"><div><label class="form-label">GITHUB TOKEN (repo/gist izni)</label><input class="form-input" type="password" id="owner-token" placeholder="${info.tokenSet ? 'değiştirmek için yeni token yaz' : 'ghp_…'}"></div><div><label class="form-label">GİST KİMLİĞİ</label><input class="form-input mono" id="owner-gist" value="${esc(info.gistId)}" placeholder="gist oluşturunca kendisi dolar"></div></div><div class="form-row" style="grid-template-columns:1fr"><div><label class="form-label">HERKESİN OKUYACAĞI HAM BAĞLANTI (raw)</label><input class="form-input mono" id="owner-feed" value="${esc(info.feedUrl)}" placeholder="https://gist.githubusercontent.com/…/raw/mineverse-news.json"></div></div><div class="modal-actions" style="justify-content:flex-start;flex-wrap:wrap"><button class="btn primary" data-owner-save ${ownerBusy === 'save' ? 'disabled' : ''}>Ayarları kaydet</button>${info.tokenSet && info.gistId ? '' : '<button class="btn success" data-owner-create>Gist oluştur</button>'}</div></details><h3 style="margin-top:16px">Yayımlanacak liste (${ownerDraft.length})</h3><div style="margin-top:8px">${draftRows}</div><p class="note">Token yalnız bu bilgisayarda, arayüzün okuyamadığı ayrı bir dosyada (<span class="mono">owner-secret.json</span>) durur. Görseli olan haberlerde resim MineVerse deposunun news-img klasörüne yüklenir (gist ham dosyaları tarayıcıda resim olarak gösterilemediği için); diğer MineVerse’ler 30 dakika içinde görür.</p></article>`;
 }
 function ownerBlankItem() {
   return { kind: 'mv', id: 'preview', title: 'Haber başlığı', summary: 'Özet metni burada görünür…', url: '', tag: 'Duyuru', image: ownerImageData || '', date: new Date().toISOString() };
@@ -323,8 +339,9 @@ async function ownerPublishNews() {
   if (!ownerDraft.length) return toast('Önce en az bir haber ekle.', true);
   ownerBusy = 'publish'; render();
   try {
-    await mv().ownerPublish(ownerDraft);
+    const result = await mv().ownerPublish(ownerDraft);
     toast(`${ownerDraft.length} haber yayımlandı. Diğer MineVerse’ler 30 dakika içinde görür.`);
+    if (result?.imageWarning) toast(`Görseller yüklenemedi: ${result.imageWarning}`, true);
   } catch (error) { toast(error.message, true); }
   ownerBusy = '';
   await loadOwnerInfo();
@@ -464,8 +481,9 @@ function bindFeatures() {
   on('[data-news-tab]', el => { newsTab = el.dataset.newsTab; render(); });
   on('[data-news-refresh]', () => loadNews(true));
   on('.news-card', el => {
-    if (el.dataset.newsKind === 'mc' && el.dataset.newsUrl) mv().openExternal(el.dataset.newsUrl).catch(e => toast(e.message, true));
-    else if (el.dataset.newsKind === 'mod') openPreview(el.dataset.newsSource || 'Modrinth', el.dataset.newsId);
+    const kind = el.dataset.newsKind;
+    if (kind === 'mod') return openPreview(el.dataset.newsSource || 'Modrinth', el.dataset.newsId);
+    newsDetailModal(findNewsItem(kind, el.dataset.newsId) || { title: el.querySelector('h3')?.textContent || 'Haber', summary: el.querySelector('p')?.textContent || '', url: el.dataset.newsUrl || '' });
   });
   on('[data-analyze]', el => runAnalysis(el.dataset.analyze));
   on('[data-install-deps]', el => runInstallDeps(el.dataset.installDeps));

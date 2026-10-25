@@ -436,18 +436,28 @@ function splitImageData(item) {
   if (buffer.length > 1024 * 1024) throw new Error('Haber görseli 1 MB sınırını aşıyor; daha küçük bir resim seç.');
   return { item: normalizeOwnerNews(item), imageBuffer: buffer };
 }
-async function uploadNewsImages(token, gistId, prepared) {
-  const files = {};
-  for (const { item, imageBuffer } of prepared) {
-    if (!imageBuffer) continue;
-    files[`mv-img-${item.id}.png`] = { content: imageBuffer.toString('base64') };
-  }
-  if (!Object.keys(files).length) return;
-  const gist = await githubRequest('/gists/' + encodeURIComponent(gistId), 'PATCH', token, { files });
-  for (const { item, imageBuffer } of prepared) {
-    if (!imageBuffer) continue;
-    const file = gist.files?.[`mv-img-${item.id}.png`];
-    if (file?.raw_url) item.image = file.raw_url;
+/* Gist ham dosyaları her zaman text/plain + nosniff servis eder, <img> bunları
+   gösteremez. Görseller bu yüzden MineVerse deposunun news-img/ yolunda durur;
+   ad içeriğin kısa özetiyle değişir ki CDN önbelleği bayatlamasın. */
+async function githubOwnerLogin(token) {
+  const me = await githubRequest('/user', 'GET', token);
+  return String(me?.login || '');
+}
+async function uploadNewsImages(token, state, prepared) {
+  const pending = prepared.filter(p => p.imageBuffer);
+  if (!pending.length) return;
+  const owner = String(state?.settings?.newsImageRepo || '') || await githubOwnerLogin(token);
+  if (!owner) throw new Error('GitHub kullanıcı adı belirlenemedi.');
+  if (!state.settings.newsImageRepo) { state.settings.newsImageRepo = owner; await ctx.saveState(state); }
+  for (const { item, imageBuffer } of pending) {
+    const hash = crypto.createHash('sha1').update(imageBuffer).digest('hex').slice(0, 8);
+    const name = `mv-img-${item.id}-${hash}.png`;
+    const apiPath = `/repos/${encodeURIComponent(owner)}/MineVerse/contents/news-img/${encodeURIComponent(name)}`;
+    let sha = '';
+    try { sha = (await githubRequest(apiPath, 'GET', token))?.sha || ''; } catch {}
+    const put = await githubRequest(apiPath, 'PUT', token, { message: `news image ${name}`, content: imageBuffer.toString('base64') });
+    const cdn = put?.content?.download_url;
+    if (cdn) item.image = cdn;
   }
 }
 async function loadOwnerNews(state) {
@@ -466,6 +476,13 @@ async function loadOwnerNews(state) {
       return { items, source: 'offline', url, error: error.message };
     } catch { return { items: [], source: 'none', url, error: error.message }; }
   }
+}
+/* Kullanıcı GİST KİMLİĞİ alanına ham ID yerine gist bağlantısını yapıştırabilir:
+   her iki biçimden de 32 haneli kimliği çıkar. */
+function normalizeGistId(value) {
+  const text = String(value || '').trim();
+  const match = text.match(/[0-9a-f]{32}/i);
+  return match ? match[0].toLowerCase() : text;
 }
 async function githubRequest(pathname, method, token, body) {
   const response = await fetch('https://api.github.com' + pathname, {
@@ -900,18 +917,29 @@ function register(context) {
   ipcMain.handle('owner:unlock', async () => { ownerUnlocked = isOwnerMachine(); return { unlocked: ownerUnlocked }; });
   ipcMain.handle('owner:lock', async () => ({ unlocked: ownerUnlocked }));
   ipcMain.handle('owner:save', async (_, patch) => {
-    if (!ownerUnlocked) throw new Error('Önce yönetici koduyla giriş yap.');
+    if (!ownerUnlocked) throw new Error('Yönetici paneli bu bilgisayarda etkin değil.');
     const state = await ctx.getState();
-    if (typeof patch.newsGistId === 'string') state.settings.newsGistId = patch.newsGistId.trim();
+    if (typeof patch.newsGistId === 'string') state.settings.newsGistId = normalizeGistId(patch.newsGistId);
     if (typeof patch.newsFeedUrl === 'string') state.settings.newsFeedUrl = patch.newsFeedUrl.trim();
-    await ctx.saveState(state);
     const token = typeof patch.githubToken === 'string' ? patch.githubToken.trim() : '';
     const secret = token ? await saveOwnerSecret({ githubToken: token }) : await readOwnerSecret();
+    /* Gist verildi ama ham bağlantı eksik/bozuksa API'den doğru raw URL'yi al. */
+    if (state.settings.newsGistId && secret.githubToken) {
+      const raw = String(state.settings.newsFeedUrl || '');
+      if (!raw.includes(state.settings.newsGistId) || !raw.endsWith('/' + NEWS_FILE_NAME)) {
+        try {
+          const gist = await githubRequest('/gists/' + encodeURIComponent(state.settings.newsGistId), 'GET', secret.githubToken);
+          const file = gist.files?.[NEWS_FILE_NAME];
+          if (file?.raw_url) state.settings.newsFeedUrl = file.raw_url;
+        } catch {}
+      }
+    }
+    await ctx.saveState(state);
     newsCache = { key: '', at: 0, data: null };
     return { ok: true, tokenSet: !!secret.githubToken, tokenHint: secret.githubToken ? `****${String(secret.githubToken).slice(-4)}` : '' };
   });
   ipcMain.handle('owner:createGist', async (_, items) => {
-    if (!ownerUnlocked) throw new Error('Önce yönetici koduyla giriş yap.');
+    if (!ownerUnlocked) throw new Error('Yönetici paneli bu bilgisayarda etkin değil.');
     const state = await ctx.getState();
     const token = String((await readOwnerSecret()).githubToken || '').trim();
     if (!token) throw new Error('Önce GitHub tokenını kaydet.');
@@ -924,25 +952,37 @@ function register(context) {
     state.settings.newsFeedUrl = gist.raw_url || `${gist.html_url}/raw/${NEWS_FILE_NAME}`;
     await ctx.saveState(state);
     try {
-      await uploadNewsImages(token, gist.id, prepared);
+      await uploadNewsImages(token, state, prepared);
       await githubRequest('/gists/' + encodeURIComponent(gist.id), 'PATCH', token, { files: { [NEWS_FILE_NAME]: { content: JSON.stringify(prepared.map(p => p.item), null, 2) } } });
     } catch {}
     newsCache = { key: '', at: 0, data: null };
     return { gistId: gist.id, feedUrl: state.settings.newsFeedUrl, htmlUrl: gist.html_url, items: prepared.map(p => p.item) };
   });
   ipcMain.handle('owner:publish', async (_, items) => {
-    if (!ownerUnlocked) throw new Error('Önce yönetici koduyla giriş yap.');
+    if (!ownerUnlocked) throw new Error('Yönetici paneli bu bilgisayarda etkin değil.');
     const state = await ctx.getState();
     const token = String((await readOwnerSecret()).githubToken || '').trim();
-    const gistId = String(state.settings.newsGistId || '').trim();
+    const gistId = normalizeGistId(state.settings.newsGistId);
+    state.settings.newsGistId = gistId;
     if (!token || !gistId) throw new Error('Token ve gist kimliği gerekli.');
     const prepared = (Array.isArray(items) ? items : []).map(splitImageData).sort((a, b) => String(b.item.date).localeCompare(String(a.item.date))).slice(0, 40);
-    try { await uploadNewsImages(token, gistId, prepared); } catch {}
+    /* Görselleri gist'ten depoya taşı (eski sürümlerden kalan gist URL'leri) */
+    for (const p of prepared) {
+      if (!p.imageBuffer && String(p.item.image).includes('gist.githubusercontent.com')) {
+        try {
+          const res = await fetch(p.item.image);
+          const buf = Buffer.from(await res.arrayBuffer());
+          if (res.ok && buf.length && buf.length <= 4 * 1024 * 1024) { p.imageBuffer = buf; p.item.image = ''; }
+        } catch {}
+      }
+    }
+    let imageWarning = '';
+    try { await uploadNewsImages(token, state, prepared); } catch (error) { imageWarning = error.message; }
     await githubRequest('/gists/' + encodeURIComponent(gistId), 'PATCH', token, { files: { [NEWS_FILE_NAME]: { content: JSON.stringify(prepared.map(p => p.item), null, 2) } } });
     const list = prepared.map(p => p.item);
     await fs.writeFile(NEWS_LOCAL_COPY(), JSON.stringify(list, null, 2));
     newsCache = { key: '', at: 0, data: null };
-    return { ok: true, items: list, feedUrl: feedUrlOf(state) };
+    return { ok: true, items: list, feedUrl: feedUrlOf(state), imageWarning };
   });
   ipcMain.handle('assets:overrides', () => listOverrides());
   ipcMain.handle('assets:pickBackground', async () => {
@@ -1033,6 +1073,30 @@ function register(context) {
     const destination = path.join(iconsDir, `${crypto.randomUUID()}.png`);
     await fs.writeFile(destination, buffer);
     return accountMutate(accountId, account => { account.icon = { type: 'custom', value: destination }; });
+  });
+  /* Seçili skin'i MineVerse'ün başlattığı oyunun klasörüne taşır.
+     Offline mod, UUID'siz (taşıyıcı) skin yolunu kullanır: skins/mineverse.png + oturum dosyası. */
+  ipcMain.handle('skins:applyToGame', async (_, skinName) => {
+    const safe = path.basename(String(skinName || ''));
+    if (!/^[\w.-]+\.png$/i.test(safe)) throw new Error('Geçersiz skin adı.');
+    const source = [path.join(CUSTOM_SKINS_DIR(), safe), path.join(BUILTIN_SKINS_DIR(), safe)].find(p => fsSync.existsSync(p));
+    if (!source) throw new Error('Skin dosyası bulunamadı.');
+    const state = await ctx.getState();
+    const account = await ensureAccounts(state);
+    const gameDir = path.join(ctx.APP_DIR(), 'minecraft');
+    const skinsDir = path.join(gameDir, 'skins');
+    const uid = path.join(gameDir, 'launcher_profiles');
+    await fs.mkdir(skinsDir, { recursive: true });
+    await fs.mkdir(uid, { recursive: true });
+    const buffer = await fs.readFile(source);
+    const key = crypto.createHash('md5').update(account.displayName).digest('hex');
+    await fs.writeFile(path.join(skinsDir, `${key}.png`), buffer);
+    await fs.writeFile(path.join(skinsDir, 'mineverse.png'), buffer);
+    await fs.writeFile(path.join(uid, `${account.displayName}.txt`), 'MINEVERSE');
+    account.skin = { name: safe.replace(/\.png$/i, ''), at: nowIso() };
+    state.settings.account = publicAccount(account);
+    await ctx.saveState(state);
+    return { ok: true, gameDir, skinName: safe, displayName: account.displayName };
   });
   ipcMain.handle('system:openExternal', (_, url) => { if (!/^https:\/\//i.test(String(url))) throw new Error('Yalnızca https bağlantıları açılabilir.'); return shell.openExternal(url); });
 }

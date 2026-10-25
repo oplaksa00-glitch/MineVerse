@@ -20,12 +20,60 @@ const loaderOptions = ['Fabric', 'Forge', 'NeoForge', 'Quilt'];
 const BLOCK_ICONS = ['grass','stone','dirt','oak','diamond','gold','iron','coal','sand','water','lava','obsidian','emerald','bedrock','redstone','copper','lapis','cobblestone','ice','snow','clay','netherrack','quartz','prismarine','endstone','tnt','hay'];
 const BLOCK_LABELS_TR = { grass:'Çim', stone:'Taş', dirt:'Toprak', oak:'Meşe odunu', diamond:'Elmas', gold:'Altın', iron:'Demir', coal:'Kömür', sand:'Kum', water:'Su', lava:'Lav', obsidian:'Obsidyen', emerald:'Zümrüt', bedrock:'Bedrock', redstone:'Kızıltaş', copper:'Bakır', lapis:'Lapis', cobblestone:'Kırıktaş', ice:'Buz', snow:'Kar', clay:'Kil', netherrack:'Netherrack', quartz:'Kuvars', prismarine:'Prizmarin', endstone:'End taşı', tnt:'TNT', hay:'Saman' };
 const FUN_ICONS = ['😂','🔥','💀','👑','🚀','⚡','🎉','🐸','🍕','🎯','🌟','😎','🎮','🦄','💎'];
+/* İzometrik küp önizlemeleri: blok dokusunun üst/yan yüzlerinden 3B görünümlü
+   ikon üretir; "iso:<blok>" değeri profil ikonlarında da kullanılabilir. */
+const isoIconCache = new Map();
+function makeIsoBlockCanvas(img) {
+  const S = 16, W = 2 * S, H = 3 * S;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  const A = [S, 0], D = [0, S / 2];
+  const face = (p0, pu, pv, dark) => {
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(p0[0], p0[1]);
+    ctx.lineTo(p0[0] + pu[0], p0[1] + pu[1]);
+    ctx.lineTo(p0[0] + pu[0] + pv[0], p0[1] + pu[1] + pv[1]);
+    ctx.lineTo(p0[0] + pv[0], p0[1] + pv[1]);
+    ctx.closePath();
+    ctx.clip();
+    ctx.setTransform(pu[0] / S, pu[1] / S, pv[0] / S, pv[1] / S, p0[0], p0[1]);
+    ctx.drawImage(img, 0, 0, 8, 8, 0, 0, S, S);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (dark) { ctx.fillStyle = `rgba(0,0,0,${dark})`; ctx.fillRect(0, 0, W, H); }
+    ctx.restore();
+  };
+  face(D, [S, -S / 2], [0, S], 0.28);        // sol yüz
+  face(A, [S, S / 2], [0, S], 0.12);         // sağ yüz
+  face(D, [S, S / 2], [S, -S / 2], 0);       // üst yüz
+  return canvas;
+}
+async function ensureIsoIcons() {
+  const missing = BLOCK_ICONS.filter(b => !isoIconCache.has(b));
+  if (!missing.length) return;
+  for (const name of missing) {
+    try {
+      const img = new Image();
+      await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = `assets/blocks/${name}.png`; });
+      isoIconCache.set(name, makeIsoBlockCanvas(img).toDataURL('image/png'));
+    } catch {}
+  }
+  render();
+}
 function toFileUrl(p) { return 'file:///' + String(p).replace(/\\/g, '/').replace(/^\/+/, ''); }
 function renderProfileIcon(icon, cls = '') {
   if (!icon) icon = { type: 'block', value: 'grass' };
   if (icon.type === 'custom' && icon.value) return `<img class="profile-icon-img ${cls}" src="${toFileUrl(icon.value)}" alt="">`;
   if (icon.type === 'image' && icon.value) return `<img class="profile-icon-img ${cls}" src="${String(icon.value).startsWith('assets/') ? icon.value : toFileUrl(icon.value)}" alt="">`;
   if (icon.type === 'fun' && icon.value) return `<div class="profile-icon-fun ${cls}">${icon.value}</div>`;
+  if (icon.type === 'block' && String(icon.value).startsWith('iso:')) {
+    const base = String(icon.value).slice(4);
+    const iso = isoIconCache.get(base);
+    if (iso) return `<img class="profile-icon-img profile-icon-iso ${cls}" src="${iso}" alt="">`;
+    return `<img class="profile-icon-img ${cls}" src="assets/blocks/${BLOCK_ICONS.includes(base) ? base : 'grass'}.png" alt="">`;
+  }
   const block = BLOCK_ICONS.includes(icon.value) ? icon.value : 'grass';
   return `<img class="profile-icon-img ${cls}" src="assets/blocks/${block}.png" alt="">`;
 }
@@ -227,26 +275,40 @@ function toast(message, error = false) { const node = q('#toast'); node.textCont
 function pageHeader(title, description, action = '', icon = '') { return `<div class="topline"><div class="topline-main">${icon ? `<div class="page-icon">${icon}</div>` : ''}<div><div class="eyebrow">MINEVERSE // ${page.toUpperCase()}</div><h1 class="h1">${title}</h1><p class="sub">${description}</p></div></div><div class="top-actions">${action}</div></div>`; }
 function profileCard(profile) { return `<article class="profile-card"><button class="card-delete" data-delete-profile="${profile.id}" title="Profili sil">${ic('act-delete')}</button><div class="profile-head">${renderProfileIcon(profile.icon, 'md')}<span class="chip">${esc(profile.loader)}</span></div><h3>${esc(profile.name)}</h3><p>${esc(profile.gameVersion)} · ${profile.mods.length} mod</p><div class="card-foot"><span>HAZIR</span><button class="open-btn" data-open-profile="${profile.id}">Aç <i>→</i></button></div></article>`; }
 function statCard(value, label, badge) { return `<div class="stat"><strong>${value}</strong><span>${label}</span>${badge ? `<b class="up">${badge}</b>` : ''}</div>`; }
-/* Rozetler: yalnızca yerel durumdan türetilir; hiçbir şey gönderilmez. */
+/* Rozetler: yalnızca yerel durumdan türetilir; hiçbir şey gönderilmez.
+   Her rozet {eşik, ilerleme} taşır; eşik 1'e eşitse anlık, değilse sayılır. */
 function badgeStripHtml() {
   const totalMods = state.profiles.reduce((all, p) => all + p.mods.length, 0);
+  const totalProfiles = state.profiles.length;
+  const packCount = state.profiles.filter(p => p.mods.some(m => m.source === 'Paket')).length;
+  const acc = (state.accounts || []).length;
   const badges = [
-    { icon: '🌱', name: 'İlk Adım', desc: 'İlk profilini oluştur', got: state.profiles.length >= 1 },
-    { icon: '📦', name: 'Koleksiyoner', desc: '10 mod topla', got: totalMods >= 10 },
-    { icon: '👑', name: 'Mod Canavarı', desc: '50 mod topla', got: totalMods >= 50 },
-    { icon: '🧑‍🤝‍🧑', name: 'Sosyal', desc: 'Bir arkadaş ekle', got: (state.friends || []).length >= 1 },
-    { icon: '🛟', name: 'Tedbirli', desc: 'Otomatik yedeği aç', got: state.settings.autoBackup !== false },
-    { icon: '🖼️', name: 'Kişisel', desc: 'Arka plan seç', got: !!(state.settings.background || {}).file },
-    { icon: '🧍', name: 'Stil Sahibi', desc: 'Skinle profil fotoğrafı yap', got: (state.settings.account || {}).icon?.type === 'custom' },
-    { icon: '◉', name: 'Bağlı', desc: 'Bir launcher bağla', got: state.launchers.length >= 1 }
+    { icon: '🌱', name: 'İlk Adım', desc: 'İlk profilini oluştur', have: totalProfiles, need: 1 },
+    { icon: '📦', name: 'Koleksiyoner', desc: '10 mod topla', have: totalMods, need: 10 },
+    { icon: '👑', name: 'Mod Canavarı', desc: '50 mod topla', have: totalMods, need: 50 },
+    { icon: '🗂️', name: 'Çok Yönlü', desc: '3 ayrı profil kur', have: totalProfiles, need: 3 },
+    { icon: '◇', name: 'Paket Kaşifi', desc: 'İçe aktarılan paket kur', have: packCount, need: 1 },
+    { icon: '🧑‍‍🧑', name: 'Sosyal', desc: 'Bir arkadaş ekle', have: (state.friends || []).length, need: 1 },
+    { icon: '🛟', name: 'Tedbirli', desc: 'Otomatik yedeği aç', have: state.settings.autoBackup !== false ? 1 : 0, need: 1 },
+    { icon: '🖼️', name: 'Kişisel', desc: 'Arka plan seç', have: !!(state.settings.background || {}).file ? 1 : 0, need: 1 },
+    { icon: '🧍', name: 'Stil Sahibi', desc: 'Skinle profil fotoğrafı yap', have: (state.settings.account || {}).icon?.type === 'custom' ? 1 : 0, need: 1 },
+    { icon: '🎨', name: 'Küp Avcısı', desc: 'İzometrik blok simgesi seç', have: String((state.settings.account || {}).icon?.value || '').startsWith('iso:') ? 1 : 0, need: 1 },
+    { icon: '🪪', name: 'Sorumlu', desc: 'İkinci hesap aç', have: acc, need: 2 },
+    { icon: '◉', name: 'Bağlı', desc: 'Bir launcher bağla', have: state.launchers.length, need: 1 }
   ];
-  const got = badges.filter(b => b.got).length;
-  return `<div class="section-head"><div><h2>${ic('card-badges')} Rozetlerin</h2><p>${got}/${badges.length} kazanıldı. Rozetler bu bilgisayardaki ilerlemenden hesaplanır.</p></div></div><section class="badge-strip">${badges.map(b => `<div class="badge-card ${b.got ? '' : 'locked'}" title="${esc(b.desc)}"><i>${b.icon}</i><div><b>${esc(b.name)}</b><span>${esc(b.desc)}</span></div></div>`).join('')}</section>`;
+  const got = badges.filter(b => b.have >= b.need).length;
+  const cards = badges.map(b => {
+    const done = b.have >= b.need;
+    const pct = Math.min(100, Math.round(b.have / b.need * 100));
+    const counter = b.need > 1 ? `<em>${Math.min(b.have, b.need)}/${b.need}</em>` : '';
+    return `<div class="badge-card ${done ? '' : 'locked'}" title="${esc(b.desc)}"><i>${b.icon}</i><div><b>${esc(b.name)}</b><span>${esc(b.desc)}</span>${counter}</div>${done ? '<s class="badge-ok">✓</s>' : `<div class="badge-bar"><i style="width:${pct}%"></i></div>`}</div>`;
+  }).join('');
+  return `<div class="section-head"><div><h2>${ic('card-badges')} Rozetlerin</h2><p>${got}/${badges.length} kazanıldı. Rozetler bu bilgisayardaki ilerlemenden hesaplanır.</p></div><span class="badge-total ${got === badges.length ? 'all' : ''}">${got === badges.length ? 'TAM KADRO ★' : `%${Math.round(got / badges.length * 100)} tamamlandı`}</span></div><section class="badge-strip">${cards}</section>`;
 }
 
 function home() {
   const profile = selectedProfile();
-  return `${pageHeader('Kendi evrenini kur.', 'Modlarını keşfet, düzenle ve tek hamlede launchera aktar.', `<button class="btn primary" data-go="discover">◈ Mod keşfet</button>`)}<section class="hero"><div class="hero-badge"><img class="star-icon sm" src="assets/star-32.png" alt=""> v0.12 · İçerik türleri · Skinler · Komut paleti</div><div class="eyebrow">ONE LAUNCHER. EVERY MOD.</div><h2>Mod koleksiyonun, her zamankinden daha akıllı.</h2><p>CurseForge, Modrinth ve kendi <code>.jar</code> dosyaların; sürüm ve launcher ayrıntılarını unutmadan tek yerde.</p><div class="hero-actions"><button class="btn primary" data-go="discover"><img class="star-icon sm" src="assets/star-32.png" alt=""> Hemen Keşfet</button><button class="btn ghost" data-go="launchers">Launcher bağla</button></div></section><section class="stats">${statCard(state.profiles.length,'Aktif profil','+ yeni')}${statCard(state.profiles.reduce((all,p)=>all+p.mods.length,0),'Yönetilen mod')}${statCard(state.launchers.length,'Bağlı launcher')}${statCard(mcVersions.releases.length || '…','Bilinen MC sürümü','✓ canlı')}</section>${badgeStripHtml()}<div class="section-head"><div><h2>Mod profillerin</h2><p>Her oyun sürümü için ayrı evrenler.</p></div><a data-new-profile>+ Yeni profil</a></div><section class="grid">${state.profiles.map(profileCard).join('')}</section>${profile ? `<div class="section-head"><div><h2>Hızlı başlangıç</h2><p>En son profilini devam ettir.</p></div><a data-open-profile="${profile.id}">Kütüphaneyi aç →</a></div><section class="panel"><div class="mod-row"><div class="profile-symbol">▶</div><div><b>${esc(profile.name)}</b><span>${profile.gameVersion} ${profile.loader} · ${profile.mods.length} mod hazır</span></div><button class="btn success row-action" data-play="${profile.id}">▶ Oyna</button></div></section>` : `<div class="section-head"><div><h2>Başlamak için bir profil oluştur</h2><p>Her oyun sürümü için ayrı bir mod profili tutabilirsin.</p></div></div><section class="panel"><div class="empty">Henüz bir mod profilin yok.<br><br><button class="btn primary" data-new-profile>＋ İlk profilini oluştur</button></div></section>`}${typeof newsSection === 'function' ? newsSection() : ''}`;
+  return `${pageHeader('Kendi evrenini kur.', 'Modlarını keşfet, düzenle ve tek hamlede launchera aktar.', `<button class="btn primary" data-go="discover">◈ Mod keşfet</button>`)}<section class="hero"><div class="hero-badge"><img class="star-icon sm" src="assets/star-32.png" alt=""> v0.12.2 · 3B skin · izometrik bloklar · ilerlemeli rozetler</div><div class="eyebrow">ONE LAUNCHER. EVERY MOD.</div><h2>Mod koleksiyonun, her zamankinden daha akıllı.</h2><p>CurseForge, Modrinth ve kendi <code>.jar</code> dosyaların; sürüm ve launcher ayrıntılarını unutmadan tek yerde.</p><div class="hero-actions"><button class="btn primary" data-go="discover"><img class="star-icon sm" src="assets/star-32.png" alt=""> Hemen Keşfet</button><button class="btn ghost" data-go="launchers">Launcher bağla</button></div></section><section class="stats">${statCard(state.profiles.length,'Aktif profil','+ yeni')}${statCard(state.profiles.reduce((all,p)=>all+p.mods.length,0),'Yönetilen mod')}${statCard(state.launchers.length,'Bağlı launcher')}${statCard(mcVersions.releases.length || '…','Bilinen MC sürümü','✓ canlı')}</section>${badgeStripHtml()}<div class="section-head"><div><h2>Mod profillerin</h2><p>Her oyun sürümü için ayrı evrenler.</p></div><a data-new-profile>+ Yeni profil</a></div><section class="grid">${state.profiles.map(profileCard).join('')}</section>${profile ? `<div class="section-head"><div><h2>Hızlı başlangıç</h2><p>En son profilini devam ettir.</p></div><a data-open-profile="${profile.id}">Kütüphaneyi aç →</a></div><section class="panel"><div class="mod-row"><div class="profile-symbol">▶</div><div><b>${esc(profile.name)}</b><span>${profile.gameVersion} ${profile.loader} · ${profile.mods.length} mod hazır</span></div><button class="btn success row-action" data-play="${profile.id}">▶ Oyna</button></div></section>` : `<div class="section-head"><div><h2>Başlamak için bir profil oluştur</h2><p>Her oyun sürümü için ayrı bir mod profili tutabilirsin.</p></div></div><section class="panel"><div class="empty">Henüz bir mod profilin yok.<br><br><button class="btn primary" data-new-profile>＋ İlk profilini oluştur</button></div></section>`}${typeof newsSection === 'function' ? newsSection() : ''}`;
 }
 
 function versionSelectOptions(selected) {
@@ -347,7 +409,8 @@ function library() {
     : (librarySuggestions && librarySuggestions.length)
       ? modGrid(librarySuggestions)
       : (librarySuggestions ? `<div class="empty">Şu an önerecek yeni bir mod bulamadık. <a data-go="discover" style="color:var(--cyan);cursor:pointer">Keşfet'e göz at →</a></div>` : '');
-  return `${pageHeader(profile.name, `${profile.gameVersion} · ${profile.loader} · ${profile.mods.length} mod`, `<button class="btn ghost" data-import="${profile.id}">${ic('act-upload')} Yerel .jar ekle</button><button class="btn ghost" data-check-updates="${profile.id}" ${updateChecking?'disabled':''}>${updateChecking?`${ic('act-refresh')} Kontrol ediliyor…`:`${ic('act-refresh')} Güncellemeleri kontrol et`}</button><button class="btn ghost" data-share-profile="${profile.id}">${ic('act-share')} Paylaş</button><button class="btn ghost" data-duplicate-profile="${profile.id}">${ic('card-duplicate')} Klonla</button><button class="btn success" data-play="${profile.id}">${ic('act-play')} Oyna</button>`, renderProfileIcon(profile.icon, 'lg'))}<div id="launch-progress-slot">${typeof launchProgressHtml === 'function' ? launchProgressHtml() : ''}</div>${updateBanner}<div class="library-toolbar"><input id="lib-search" placeholder="Bu profildeki modlarda ara..." value="${esc(librarySearch)}"><select id="lib-sort"><option value="name" ${librarySort==='name'?'selected':''}>İsme göre</option><option value="source" ${librarySort==='source'?'selected':''}>Kaynağa göre</option><option value="recent" ${librarySort==='recent'?'selected':''}>Son eklenen</option></select></div>${selectedMods.size ? `<div class="bulk-bar"><b>${selectedMods.size} mod seçildi</b><button class="btn danger" data-bulk-delete>Seçilenleri sil</button><button class="btn ghost" data-bulk-clear>Seçimi temizle</button></div>` : ''}<div class="detail-layout"><section class="panel"><div class="section-head"><div><h2>Profil modları</h2><p>${mods.length} / ${profile.mods.length} gösteriliyor.</p></div><label style="font-size:11px;color:var(--muted);display:flex;gap:6px;align-items:center;cursor:pointer">${mods.length ? `<input type="checkbox" class="row-check" id="lib-select-all" ${allSelected?'checked':''}> Tümünü seç` : ''}</label></div>${mods.length ? mods.map(mod=>`<div class="mod-row ${mod.enabled===false?'disabled':''}"><input type="checkbox" class="row-check" data-select-mod="${mod.id}" ${selectedMods.has(mod.id)?'checked':''}><div class="mod-icon">${mod.source==='Local'?'↥':mod.source==='Paket'?'◇':'◈'}</div><div><b>${esc(mod.name)}</b><span>${esc(mod.version)} · ${esc(mod.source)} · ${esc(mod.fileName)}</span></div><div class="switch ${mod.enabled===false?'':'on'}" data-toggle-mod="${mod.id}" title="${mod.enabled===false?'Etkinleştir':'Devre dışı bırak'}"></div><button class="btn danger row-action" data-remove-mod="${mod.id}">Sil</button></div>`).join('') : `<div class="empty">${librarySearch ? 'Aramayla eşleşen mod yok.' : 'Bu profilde henüz mod yok.'}<br><br><button class="btn primary" data-go="discover">Mod bul</button></div>`}</section><aside>${typeof analysisCard === 'function' ? analysisCard(profile) : ''}<section class="panel"><h3>Profil özeti</h3>${profile.mods.length ? `<div class="rp-source-bar">${Object.entries(bySource).map(([src,count])=>`<i style="width:${count/profile.mods.length*100}%;background:${{Modrinth:'#54e7cf',CurseForge:'#ff8a5c',Local:'#9b75ff',Paket:'#f5d76e'}[src]||'#888'}"></i>`).join('')}</div><div class="rp-legend">${Object.entries(bySource).map(([src,count])=>`<span><i style="background:${{Modrinth:'#54e7cf',CurseForge:'#ff8a5c',Local:'#9b75ff',Paket:'#f5d76e'}[src]||'#888'}"></i>${esc(src)} · ${count}</span>`).join('')}</div>` : '<p class="sub" style="margin:0">Henüz mod yok.</p>'}<div class="mod-row"><div>⏻</div><div><b>Devre dışı modlar</b><span>${disabledCount} mod devre dışı</span></div></div><div class="mod-row"><div>⟳</div><div><b>Güncelleme kontrolü</b><span>Modrinth modları için aktif</span></div></div></section><section class="upload"><strong>Kendi modunu ekle</strong><span>Yerel bir <code>.jar</code> dosyasını bu profile kopyala.</span><button class="btn primary" data-import="${profile.id}">Dosya seç</button></section></aside></div><div class="section-head"><div><h2>${esc(profile.name)} için öneriler</h2><p>${profile.gameVersion} · ${profile.loader} ile uyumlu, henüz eklemediğin modlar.</p></div><a data-go="discover">Tümünü keşfet →</a></div>${suggestHtml}`;
+  const profileSwitch = `<div class="profile-switch">${state.profiles.map(p => `<button class="switch-pill ${p.id === profile.id ? 'active' : ''}" data-open-profile="${p.id}" title="${esc(p.name)} · ${p.gameVersion} ${p.loader}">${renderProfileIcon(p.icon, 'xs')}<b>${esc(p.name)}</b><span>${p.mods.length} mod</span></button>`).join('')}<button class="switch-pill add" data-new-profile title="Yeni profil">＋</button></div>`;
+  return `${pageHeader(profile.name, `${profile.gameVersion} · ${profile.loader} · ${profile.mods.length} mod`, `<button class="btn ghost" data-import="${profile.id}">${ic('act-upload')} Yerel .jar ekle</button><button class="btn ghost" data-check-updates="${profile.id}" ${updateChecking?'disabled':''}>${updateChecking?`${ic('act-refresh')} Kontrol ediliyor…`:`${ic('act-refresh')} Güncellemeleri kontrol et`}</button><button class="btn ghost" data-share-profile="${profile.id}">${ic('act-share')} Paylaş</button><button class="btn ghost" data-duplicate-profile="${profile.id}">${ic('card-duplicate')} Klonla</button><button class="btn success" data-play="${profile.id}">${ic('act-play')} Oyna</button>`, renderProfileIcon(profile.icon, 'lg'))}${profileSwitch}<div id="launch-progress-slot">${typeof launchProgressHtml === 'function' ? launchProgressHtml() : ''}</div>${updateBanner}<div class="library-toolbar"><input id="lib-search" placeholder="Bu profildeki modlarda ara..." value="${esc(librarySearch)}"><select id="lib-sort"><option value="name" ${librarySort==='name'?'selected':''}>İsme göre</option><option value="source" ${librarySort==='source'?'selected':''}>Kaynağa göre</option><option value="recent" ${librarySort==='recent'?'selected':''}>Son eklenen</option></select></div>${selectedMods.size ? `<div class="bulk-bar"><b>${selectedMods.size} mod seçildi</b><button class="btn danger" data-bulk-delete>Seçilenleri sil</button><button class="btn ghost" data-bulk-clear>Seçimi temizle</button></div>` : ''}<div class="detail-layout"><section class="panel"><div class="section-head"><div><h2>Profil modları</h2><p>${mods.length} / ${profile.mods.length} gösteriliyor.</p></div><label style="font-size:11px;color:var(--muted);display:flex;gap:6px;align-items:center;cursor:pointer">${mods.length ? `<input type="checkbox" class="row-check" id="lib-select-all" ${allSelected?'checked':''}> Tümünü seç` : ''}</label></div>${mods.length ? mods.map(mod=>`<div class="mod-row ${mod.enabled===false?'disabled':''}"><input type="checkbox" class="row-check" data-select-mod="${mod.id}" ${selectedMods.has(mod.id)?'checked':''}><div class="mod-icon">${mod.source==='Local'?'↥':mod.source==='Paket'?'◇':'◈'}</div><div><b>${esc(mod.name)}</b><span>${esc(mod.version)} · ${esc(mod.source)} · ${esc(mod.fileName)}</span></div><div class="switch ${mod.enabled===false?'':'on'}" data-toggle-mod="${mod.id}" title="${mod.enabled===false?'Etkinleştir':'Devre dışı bırak'}"></div><button class="btn danger row-action" data-remove-mod="${mod.id}">Sil</button></div>`).join('') : `<div class="empty">${librarySearch ? 'Aramayla eşleşen mod yok.' : 'Bu profilde henüz mod yok.'}<br><br><button class="btn primary" data-go="discover">Mod bul</button></div>`}</section><aside>${typeof analysisCard === 'function' ? analysisCard(profile) : ''}<section class="panel"><h3>Profil özeti</h3>${profile.mods.length ? `<div class="rp-source-bar">${Object.entries(bySource).map(([src,count])=>`<i style="width:${count/profile.mods.length*100}%;background:${{Modrinth:'#54e7cf',CurseForge:'#ff8a5c',Local:'#9b75ff',Paket:'#f5d76e'}[src]||'#888'}"></i>`).join('')}</div><div class="rp-legend">${Object.entries(bySource).map(([src,count])=>`<span><i style="background:${{Modrinth:'#54e7cf',CurseForge:'#ff8a5c',Local:'#9b75ff',Paket:'#f5d76e'}[src]||'#888'}"></i>${esc(src)} · ${count}</span>`).join('')}</div>` : '<p class="sub" style="margin:0">Henüz mod yok.</p>'}<div class="mod-row"><div>⏻</div><div><b>Devre dışı modlar</b><span>${disabledCount} mod devre dışı</span></div></div><div class="mod-row"><div>⟳</div><div><b>Güncelleme kontrolü</b><span>Modrinth modları için aktif</span></div></div></section><section class="upload"><strong>Kendi modunu ekle</strong><span>Yerel bir <code>.jar</code> dosyasını bu profile kopyala.</span><button class="btn primary" data-import="${profile.id}">Dosya seç</button></section></aside></div><div class="section-head"><div><h2>${esc(profile.name)} için öneriler</h2><p>${profile.gameVersion} · ${profile.loader} ile uyumlu, henüz eklemediğin modlar.</p></div><a data-go="discover">Tümünü keşfet →</a></div>${suggestHtml}`;
 }
 
 function packs() {
@@ -364,13 +427,22 @@ function settings() {
   const storageRows = storageInfo ? storageInfo.profiles.map(p => `<div class="rp-row"><span>${esc(p.name)}</span><b>${formatBytes(p.bytes)} · ${p.files} dosya</b></div>`).join('') : '';
   return `${pageHeader('Kişiselleştir.', 'MineVerse görünümünü, varsayılanlarını ve verilerini kendine göre ayarla.')}<section class="settings-grid">
   <article class="setting-card"><h3>${ic('card-account')} Hesap</h3><p>Kimliğin, MV kodun ve oyun UUID\u2019n artık <b>Hesabım</b> sayfasında. Arkadaşlarına paket gönderirken bu kodu kullanırsın.</p><div class="modal-actions" style="justify-content:flex-start"><button class="btn primary" data-go="account">Hesabım sayfasını aç ${ic('act-open')}</button></div></article>
+  <article class="setting-card"><h3>${ic('card-identity')} Kimliğin ve ilerlemen</h3>${(() => {
+    const a = s.account || {};
+    const totalMods = state.profiles.reduce((all, p) => all + p.mods.length, 0);
+    const skin = (state.accounts || []).find(x => x.id === s.activeAccountId)?.skin;
+    return `<div class="identity-mini">${renderProfileIcon(a.icon || { type: 'block', value: 'grass' }, 'md')}<div><b>${esc(a.displayName || 'Yerel Oyuncu')}</b><span class="mono">${esc(a.code || 'MV-····-····')}</span></div></div>
+    <div class="mini-stats"><div><b>${state.profiles.length}</b><span>profil</span></div><div><b>${totalMods}</b><span>mod</span></div><div><b>${(state.friends || []).length}</b><span>arkadaş</span></div><div><b>${skin ? '✓' : '—'}</b><span>oyun skin'i</span></div></div>
+    <p class="note">${skin ? `Oyunda <b>${esc(skin.name)}</b> skin'i kullanılıyor (${esc(dateTr(skin.at))}).` : 'MineVerse\'ten bir skin yükleyip "Oyuna aktar" dediğinde skin burada görünür.'}</p>
+    <div class="modal-actions" style="justify-content:flex-start"><button class="btn ghost" data-go="account">Skin ve hesap ayarları ${ic('act-open')}</button></div>`;
+  })()}</article>
   <article class="setting-card wide"><h3>${ic('card-theme')} Tema ve vurgu rengi</h3><p>Önce taban temayı seç, sonra vurgu rengini belirle. Hazır renkler anında uygulanır; kendi rengini de verebilirsin.</p><div class="theme-list">${themes.map(t=>`<button class="theme ${t.id} ${themeName===t.id?'active':''}" data-theme-pick="${t.id}" title="${t.label}"><span>${t.label}</span></button>`).join('')}</div><div class="accent-grid">${ACCENTS.map(a=>`<button class="accent-chip ${accentColor.toLowerCase()===a.hex?'active':''}" data-accent="${a.hex}" style="--chip:${a.hex};--chip2:${shade(a.hex,-22)};--chip-text:${contrastOn(a.hex)}"><i></i><span>${a.label}</span></button>`).join('')}</div><div class="accent-row"><input type="color" id="accent-picker" value="${accentColor}" title="Özel renk"><code class="mono">${esc(accentColor)}</code><button class="btn ghost" data-accent-reset>Varsayılana dön</button></div></article>
   ${backgroundCard()}
   <article class="setting-card"><h3>${ic('card-defaults')} Yeni profil varsayılanları</h3><p>Yeni bir mod profili oluştururken bu sürüm ve yükleyici otomatik seçili gelsin.</p><div class="form-row"><div><label class="form-label">SÜRÜM</label><select id="default-version" class="form-input">${versionOpts}</select></div><div><label class="form-label">YÜKLEYİCİ</label><select id="default-loader" class="form-input">${loaderOptions.map(l=>`<option ${l===s.defaultLoader?'selected':''}>${l}</option>`).join('')}</select></div></div><div class="modal-actions"><button class="btn primary" data-save-defaults>Kaydet</button></div></article>
   <article class="setting-card"><h3>${ic('card-curse')} CurseForge erişimi</h3><p>Resmî CurseForge API kişisel anahtar ister. Anahtar yalnızca bu bilgisayarda tutulur, uygulama kaynak kodunda yer almaz.</p><label class="form-label">API ANAHTARI</label><input id="curse-key" class="form-input" type="password" placeholder="API anahtarını gir" value="${esc(s.curseForgeApiKey)}"><div class="modal-actions"><button class="btn primary" data-save-key>Kaydet</button></div><p class="note tiny">Şu an kullanılan: <b>${esc(s.curseForgeKeySource || 'yok')}</b>. Kaynağı GitHub'a yüklersen buraya kendi anahtarını girmen gerekir; anahtarsız yalnızca Modrinth çalışır.</p></article>
   <article class="setting-card"><h3>${ic('card-versions')} Minecraft sürüm listesi</h3><p>Sürümler Mojang'dan canlı çekilir (${mcVersions.releases.length} sürüm bulundu, en son: ${esc(mcVersions.latest?.release || '—')}).</p><button class="btn ghost" data-refresh-versions>${ic('act-refresh')} Şimdi yenile</button></article>
   <article class="setting-card"><h3>${ic('card-storage')} Depolama</h3><p>${storageInfo ? `Toplam <b style="color:var(--text)">${formatBytes(storageInfo.totalBytes)}</b> yerel mod verisi.` : 'Hesaplanıyor…'}</p>${storageRows ? `<div style="margin:10px 0">${storageRows}</div>` : ''}<div class="modal-actions" style="justify-content:flex-start"><button class="btn ghost" data-open-data>Veri klasörünü aç</button></div></article>
-  <article class="setting-card"><h3>${ic('card-about')} Hakkında</h3><p>MineVerse v0.12.1 · yerel çalışan bir mod yöneticisi. Modrinth + CurseForge aramasını birleştirir, sürüm/yükleyici seçerek indirir, istersen Minecraft'ı kendisi başlatır.</p><p style="margin-top:8px">Bu sürümde: keşfette içerik türleri (paket, shader, kaynak paketi, dünya), hazır duvar kağıtları, skin galerisi, canlı önizlemeli yönetici paneli, rozetler, Ctrl+K komut paleti ve profil klonlama.</p><p style="margin-top:10px;font-size:10.5px;color:#5f8481">Bu derleme henüz bir kod imzalama sertifikası içermiyor; Windows SmartScreen ilk açılışta uyarı gösterebilir, bu normaldir.</p></article>
+  <article class="setting-card"><h3>${ic('card-about')} Hakkında</h3><p>MineVerse v0.12.2 · yerel çalışan bir mod yöneticisi. Modrinth + CurseForge aramasını birleştirir, sürüm/yükleyici seçerek indirir, istersen Minecraft'ı kendisi başlatır.</p><p style="margin-top:8px">Bu sürümde: 3B dönen skin önizlemesi ve "Oyuna aktar", izometrik blok simgeleri, haber detay penceresi, kütüphanede profil geçiş şeridi, ilerlemeli rozetler ve haber görsellerinin depodan sunulması.</p><p style="margin-top:10px;font-size:10.5px;color:#5f8481">Bu derleme henüz bir kod imzalama sertifikası içermiyor; Windows SmartScreen ilk açılışta uyarı gösterebilir, bu normaldir.</p></article>
   <article class="setting-card danger-card"><h3>${ic('card-danger')} Tehlikeli bölge</h3><p>Tüm profilleri, indirilen modları ve ayarları kalıcı olarak siler. Bu işlem geri alınamaz.</p><div class="modal-actions" style="justify-content:flex-start"><button class="btn danger" data-reset-all>Her şeyi sıfırla</button></div></article>
   ${typeof settingsExtra === 'function' ? settingsExtra() : ''}
   </section>`;
@@ -801,7 +873,7 @@ function iconPickerHtml(currentType, currentValue, photoOnly = false) {
       <button type="button" class="icon-tab ${type==='image'?'active':''}" data-icon-tab="image">${ic('card-wallpapers')} Görseller</button>
       <button type="button" class="icon-tab ${type==='custom'?'active':''}" data-icon-tab="custom">${ic('card-assets')} Kendi fotoğrafın</button>
     </div>
-    <div class="icon-panel" data-icon-panel="block" style="${type!=='block'?'display:none':''}"><div class="icon-grid">${BLOCK_ICONS.map(b=>`<button type="button" class="icon-swatch ${type==='block'&&currentValue===b?'selected':''}" data-icon-pick="block:${b}" title="${BLOCK_LABELS_TR[b]}"><img src="assets/blocks/${b}.png" alt=""></button>`).join('')}</div></div>
+    <div class="icon-panel" data-icon-panel="block" style="${type!=='block'?'display:none':''}"><div class="icon-grid">${BLOCK_ICONS.map(b=>`<button type="button" class="icon-swatch ${type==='block'&&currentValue===b?'selected':''}" data-icon-pick="block:${b}" title="${BLOCK_LABELS_TR[b]}"><img src="assets/blocks/${b}.png" alt=""></button>`).join('')}</div><span class="form-label" style="display:block;margin:14px 0 6px">İZOMETRİK KÜPLER</span><div class="icon-grid icon-grid-iso">${BLOCK_ICONS.map(b=>`<button type="button" class="icon-swatch iso ${type==='block'&&currentValue==='iso:'+b?'selected':''}" data-icon-pick="block:iso:${b}" title="${BLOCK_LABELS_TR[b]} (3B)"><img ${isoIconCache.has(b)?`src="${isoIconCache.get(b)}"`:''} alt=""></button>`).join('')}</div></div>
     <div class="icon-panel" data-icon-panel="fun" style="${type!=='fun'?'display:none':''}"><div class="icon-grid">${FUN_ICONS.map(e=>`<button type="button" class="icon-swatch fun ${type==='fun'&&currentValue===e?'selected':''}" data-icon-pick="fun:${e}">${e}</button>`).join('')}</div></div>
     <div class="icon-panel" data-icon-panel="image" style="${type!=='image'?'display:none':''}"><div class="icon-grid icon-grid-img">${MC_PROFILE_IMAGES.map(m=>`<button type="button" class="icon-swatch img ${type==='image'&&currentValue===m.value?'selected':''}" data-icon-pick="image:${m.value}" title="${m.label}"><img src="${m.value}" alt=""></button>`).join('')}</div></div>
     <div class="icon-panel" data-icon-panel="custom" style="${type!=='custom'?'display:none':''}">${type==='custom'&&currentValue ? `<img class="custom-preview" src="${toFileUrl(currentValue)}" alt="">` : ''}<button type="button" class="btn ghost" data-icon-upload>📁 ${type==='custom'&&currentValue?'Değiştir':'Bilgisayardan seç'}</button></div>
@@ -816,8 +888,8 @@ function bindIconPicker(container) {
     container.querySelectorAll('[data-icon-panel]').forEach(panel => panel.style.display = panel.dataset.iconPanel === tab.dataset.iconTab ? '' : 'none');
   });
   container.querySelectorAll('[data-icon-pick]').forEach(swatch => swatch.onclick = () => {
-    const [type, value] = swatch.dataset.iconPick.split(':');
-    typeInput.value = type; valueInput.value = value;
+    const [type, ...rest] = swatch.dataset.iconPick.split(':');
+    typeInput.value = type; valueInput.value = rest.join(':');
     swatch.closest('.icon-panel').querySelectorAll('.icon-swatch').forEach(s => s.classList.toggle('selected', s === swatch));
   });
   const uploadBtn = container.querySelector('[data-icon-upload]');
@@ -912,6 +984,7 @@ async function bootstrap() {
     if (typeof loadUiIcons === 'function') await loadUiIcons();
     hydrateIcons(document);
     render();
+    ensureIsoIcons();
     loadVersionsInBackground();
     if (typeof loadAccountInfo === 'function') loadAccountInfo();
     if (typeof featuresAutoLoad === 'function') featuresAutoLoad();

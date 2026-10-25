@@ -53,6 +53,104 @@ function drawSkinToCanvas(canvas, img) {
     px(20, 52, 4, 12, 8, 20); // sol bacak
   }
 }
+
+/* ---------------- 3B skin görüntüleyici ----------------
+   Skin dokusundaki kutuları (kafa/gövde/kol/bacak) gerçek 3B köşelere
+   dönüştürüp Y ekseninde döndürerek çizer; yüzler derinliğe göre sıralanır. */
+const skinViewer = { angle: -0.6, spinning: true, raf: 0, img: null, dragging: false, lastX: 0, front: false };
+const SKIN_BOXES = [
+  { uv: [0, 0], size: [8, 8, 8], at: [0, 24, 0] },        // kafa
+  { uv: [16, 16], size: [8, 12, 4], at: [0, 12, 0] },     // gövde
+  { uv: [40, 16], size: [4, 12, 4], at: [-6, 12, 0] },    // sağ kol
+  { uv: [40, 16], size: [4, 12, 4], at: [6, 12, 0], mirror: true }, // sol kol
+  { uv: [0, 16], size: [4, 12, 4], at: [-2, 0, 0] },      // sağ bacak
+  { uv: [0, 16], size: [4, 12, 4], at: [2, 0, 0], mirror: true }  // sol bacak
+];
+function skinFaceRect(box, face) {
+  const [u, v] = box.uv, [w, h, d] = box.size;
+  const x2 = w + 2 * d;
+  const rects = {
+    front: [u, v, w, h],
+    back: [u + w + d, v, w, h],
+    left: [u + w, v, d, h],
+    right: [u + x2, v, d, h],
+    top: [u + d, v, w, d],
+    bottom: [u + d + w, v, w, d]
+  };
+  return rects[face];
+}
+function drawSkin3D(canvas, img) {
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const scale = canvas.height / 44;
+  const cx = canvas.width / 2, cy = canvas.height * 0.56;
+  const cos = Math.cos(skinViewer.angle), sin = Math.sin(skinViewer.angle);
+  const tilt = 0.16;
+  const project = (x, y, z) => {
+    const rx = x * cos + z * sin;
+    const rz = -x * sin + z * cos;
+    return { sx: cx + rx * scale, sy: cy - (y * Math.cos(tilt) - rz * Math.sin(tilt)) * scale, depth: rz * Math.cos(tilt) + y * Math.sin(tilt) };
+  };
+  /* yer gölgesi */
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.beginPath();
+  ctx.ellipse(cx, cy + 0.5 * scale, 7 * scale, 2.4 * scale, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+  const light = { x: -0.45, y: 0.85, z: 0.6 };
+  const quads = [];
+  for (const box of SKIN_BOXES) {
+    const [w, h, d] = box.size, [bx, by, bz] = box.at;
+    const x0 = bx - w / 2, x1 = bx + w / 2, y0 = by, y1 = by + h, z0 = bz - d / 2, z1 = bz + d / 2;
+    const V = { a: [x0, y1, z1], b: [x1, y1, z1], c: [x1, y0, z1], e: [x0, y0, z1], f: [x0, y1, z0], g: [x1, y1, z0], i: [x1, y0, z0], j: [x0, y0, z0] };
+    const face = (name, corners, normal, flip) => {
+      const pts = corners.map(k => project(...V[k]));
+      const depth = pts.reduce((s, p) => s + p.depth, 0) / 4;
+      const nd = normal[0] * cos + normal[2] * sin;
+      const shadeLevel = Math.max(0.42, Math.min(1, 0.62 + 0.38 * (nd * light.x + normal[1] * light.y + (normal[2] * cos - normal[0] * sin) * light.z)));
+      quads.push({ pts, rect: skinFaceRect(box, name), flip, depth, shade: shadeLevel });
+    };
+    face('front', ['a', 'b', 'c', 'e'], [0, 0, 1]);
+    face('back', ['g', 'f', 'j', 'i'], [0, 0, -1]);
+    face('right', ['b', 'g', 'i', 'c'], [1, 0, 0]);
+    face('left', ['f', 'a', 'e', 'j'], [-1, 0, 0]);
+    face('top', ['f', 'g', 'b', 'a'], [0, 1, 0]);
+    face('bottom', ['e', 'c', 'i', 'j'], [0, -1, 0], true);
+  }
+  quads.sort((a, b) => a.depth - b.depth);
+  for (const quad of quads) {
+    const [sx, sy, sw, sh] = quad.rect;
+    const dw = quad.flip ? sw : sw;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(quad.pts[0].sx, quad.pts[0].sy);
+    ctx.lineTo(quad.pts[1].sx, quad.pts[1].sy);
+    ctx.lineTo(quad.pts[2].sx, quad.pts[2].sy);
+    ctx.lineTo(quad.pts[3].sx, quad.pts[3].sy);
+    ctx.closePath();
+    ctx.clip();
+    const k = (quad.pts[1].sx - quad.pts[0].sx) / dw, m = (quad.pts[1].sy - quad.pts[0].sy) / dw;
+    const n = (quad.pts[3].sx - quad.pts[0].sx) / sh, o = (quad.pts[3].sy - quad.pts[0].sy) / sh;
+    ctx.setTransform(k, m, n, o, quad.pts[0].sx, quad.pts[0].sy);
+    ctx.drawImage(img, sx, sy, dw, sh, 0, 0, dw, sh);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = `rgba(0,0,0,${(1 - quad.shade).toFixed(3)})`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+  }
+}
+function skinViewerFrame() {
+  if (!skinViewer.spinning || skinViewer.dragging || page !== 'account') { skinViewer.raf = 0; return; }
+  skinViewer.angle += 0.012;
+  const canvas = q('#skin-preview-canvas');
+  if (canvas && skinViewer.img) drawSkin3D(canvas, skinViewer.img);
+  skinViewer.raf = requestAnimationFrame(skinViewerFrame);
+}
+function skinViewerStart() {
+  if (!skinViewer.raf && skinViewer.spinning) skinViewer.raf = requestAnimationFrame(skinViewerFrame);
+}
 function skinHeadDataUrl(img) {
   const canvas = document.createElement('canvas');
   canvas.width = 64; canvas.height = 64;
@@ -69,7 +167,11 @@ function renderSkinPreview() {
   const label = q('#skin-preview-name');
   if (label) label.textContent = skin.name.replace(/\.png$/i, '').replace(/^[0-9a-f-]{8,}$/i, 'Yüklenen skin');
   const img = new Image();
-  img.onload = () => drawSkinToCanvas(canvas, img);
+  img.onload = () => {
+    skinViewer.img = img;
+    drawSkin3D(canvas, img);
+    skinViewerStart();
+  };
   img.src = skin.dataUrl;
 }
 function skinSectionHtml() {
@@ -77,7 +179,10 @@ function skinSectionHtml() {
   const all = skinListFlat();
   const sel = selectedSkin();
   const cells = all.map(s => `<button type="button" class="skin-cell ${sel && s.key === sel.key ? 'selected' : ''}" data-skin-pick="${esc(s.key)}" title="${esc(s.name)}"><img src="${esc(s.dataUrl)}" alt="${esc(s.name)}">${s.builtin ? '' : `<i class="skin-cell-del" data-skin-delete="${esc(s.name)}" title="Skin sil">${ic('act-close')}</i>`}</button>`).join('');
-  return `<section class="panel skin-panel"><div class="section-head"><div><h3>${ic('card-skins')} Skinlerim</h3><p>Minecraft skinlerini önizle, profil fotoğrafın olarak kullan ya da kendi skini yükle.</p></div><button class="btn ghost" data-skin-refresh>${ic('act-refresh')} Yenile</button></div><div class="skin-layout"><div class="skin-stage"><canvas id="skin-preview-canvas" width="128" height="256"></canvas><span class="skin-stage-name mono" id="skin-preview-name">${esc(sel ? sel.name : '—')}</span><div class="modal-actions" style="justify-content:center;flex-wrap:wrap"><button class="btn primary" data-skin-avatar ${sel ? '' : 'disabled'}>${ic('card-account')} Profil fotoğrafı yap</button><button class="btn ghost" data-skin-upload>${ic('act-upload')} Skin yükle</button><button class="btn ghost" data-skin-folder>${ic('act-open')} Klasörü aç</button></div><p class="note" style="text-align:center">64×64 PNG skinler kabul edilir; resmî Minecraft biçiminde olmalı.</p></div><div class="skin-gallery">${all.length ? cells : '<div class="empty">Henüz skin yok. Hazır skinler pakete eklenince burada görünür; kendi skinini yükleyebilirsin.</div>'}</div></div></section>`;
+  const inGame = accountData?.active?.skin;
+  const selBase = sel ? sel.name.replace(/\.png$/i, '') : '';
+  const gameChip = inGame ? `<span class="chip ${inGame.name === selBase ? 'skin-live' : ''}" title="Oyunda şu an bu skin kullanılıyor">${inGame.name === selBase ? '▶ OYUNDA' : 'oyunda: ' + esc(inGame.name)}</span>` : '';
+  return `<section class="panel skin-panel"><div class="section-head"><div><h3>${ic('card-skins')} Skinlerim</h3><p>Skinini 3B döner önizlemede incele, profil fotoğrafın yap ya da doğrudan oyuna aktar.</p></div><button class="btn ghost" data-skin-refresh>${ic('act-refresh')} Yenile</button></div><div class="skin-layout"><div class="skin-stage"><div class="skin-stage-top"><span class="chip">3B</span>${gameChip}<button class="mini-btn" data-skin-spin>${skinViewer.spinning ? '⏸ Döndürmeyi durdur' : '▶ Otomatik döndür'}</button></div><canvas id="skin-preview-canvas" width="220" height="330"></canvas><span class="skin-stage-hint">sürükleyerek kendin çevir</span><span class="skin-stage-name mono" id="skin-preview-name">${esc(sel ? sel.name : '—')}</span><div class="modal-actions" style="justify-content:center;flex-wrap:wrap"><button class="btn success" data-skin-apply-game ${sel ? '' : 'disabled'}>${ic('act-play')} Oyuna aktar</button><button class="btn primary" data-skin-avatar ${sel ? '' : 'disabled'}>${ic('card-account')} Profil fotoğrafı yap</button><button class="btn ghost" data-skin-upload>${ic('act-upload')} Skin yükle</button><button class="btn ghost" data-skin-folder>${ic('act-open')} Klasörü aç</button></div><p class="note" style="text-align:center">64×64 PNG skinler kabul edilir. "Oyuna aktar", skin'i MineVerse'ün başlattığı oyunun klasörüne yazar.</p></div><div class="skin-gallery">${all.length ? cells : '<div class="empty">Henüz skin yok. Hazır skinler pakete eklenince burada görünür; kendi skinini yükleyebilirsin.</div>'}</div></div></section>`;
 }
 
 async function loadAccountInfo(force = false) {
@@ -206,6 +311,29 @@ function bindAccount() {
   on('[data-account-delete]', el => accountDeleteModal(el.dataset.accountDelete));
   /* Skinler */
   renderSkinPreview();
+  const stage = q('#skin-preview-canvas');
+  if (stage) {
+    stage.onpointerdown = event => { skinViewer.dragging = true; skinViewer.lastX = event.clientX; stage.setPointerCapture(event.pointerId); };
+    stage.onpointermove = event => { if (!skinViewer.dragging) return; skinViewer.angle += (event.clientX - skinViewer.lastX) * 0.016; skinViewer.lastX = event.clientX; if (skinViewer.img) drawSkin3D(stage, skinViewer.img); };
+    stage.onpointerup = () => { skinViewer.dragging = false; skinViewerStart(); };
+    stage.onpointercancel = () => { skinViewer.dragging = false; };
+  }
+  on('[data-skin-spin]', el => {
+    skinViewer.spinning = !skinViewer.spinning;
+    el.textContent = skinViewer.spinning ? '⏸ Döndürmeyi durdur' : '▶ Otomatik döndür';
+    skinViewerStart();
+  });
+  on('[data-skin-apply-game]', async el => {
+    const skin = selectedSkin();
+    if (!skin) return;
+    el.disabled = true;
+    try {
+      const result = await mvAccount().applySkinToGame(skin.name);
+      await loadAccountInfo(true);
+      render(); renderSkinPreview();
+      toast(`Skin oyuna aktarıldı: ${result.displayName} · ${result.gameDir}`);
+    } catch (error) { toast(error.message, true); el.disabled = false; }
+  });
   on('[data-skin-refresh]', async () => { await loadSkins(true); render(); renderSkinPreview(); });
   on('[data-skin-upload]', async () => {
     try {
