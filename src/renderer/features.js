@@ -275,7 +275,7 @@ async function loadOwnerInfo() {
   try {
     ownerInfo = await mv().ownerStatus();
     if (!ownerInfo.unlocked) ownerDraft = [];
-    else if (!ownerDraft.length) ownerDraft = (ownerInfo.items || []).map(item => ({ ...item }));
+    else if (!ownerDraft.length && (ownerInfo.items || []).length) ownerDraft = ownerInfo.items.map(item => ({ ...item }));
   } catch { ownerInfo = null; }
   if (page === 'settings') render();
 }
@@ -336,7 +336,15 @@ async function ownerCreateGist() {
   } catch (error) { toast(error.message, true); }
 }
 async function ownerPublishNews() {
-  if (!ownerDraft.length) return toast('Önce en az bir haber ekle.', true);
+  if (!ownerDraft.length) {
+    confirmModal('Tüm haberler silinsin mi?', 'Feed boş gönderilir; tüm MineVerse’lerde haber akışı temizlenir.', 'Tümünü sil', async () => {
+      ownerBusy = 'publish'; render();
+      try { await mv().ownerPublish([]); toast('Haber akışı temizlendi.'); } catch (error) { toast(error.message, true); }
+      ownerBusy = '';
+      await loadOwnerInfo();
+    }, true);
+    return;
+  }
   ownerBusy = 'publish'; render();
   try {
     const result = await mv().ownerPublish(ownerDraft);
